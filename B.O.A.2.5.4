@@ -1,0 +1,1298 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+B.O.A.2.5.4 - Bitácora de Obras Artísticas
+Versión Completa: Bitácora + Calendario + Canvas + Fotos
+Desarrollado en Python con tkinter (sin dependencias externas)
+Agosto 2025
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, simpledialog, scrolledtext
+from tkinter import font as tkFont
+import json
+import csv
+import os
+import datetime
+import calendar
+import shutil
+from pathlib import Path
+
+class BOABitacora:
+    def __init__(self):
+        # Ventana principal
+        self.root = tk.Tk()
+        self.root.title("B.O.A.2.5.4 - Bitácora de Obras Artísticas")
+        self.root.geometry("1200x800")
+        self.root.configure(bg='#f0f0f0')
+        
+        # Datos
+        self.entradas = []  # Lista de entradas de bitácora
+        self.archivo_datos = "boa_bitacora.json"
+        self.carpeta_imagenes = "boa_imagenes"
+        
+        # Variables
+        self.fecha_seleccionada = datetime.date.today()
+        self.vista_actual = "dashboard"
+        
+        # Variables para canvas
+        self.canvas_dibujo = None
+        self.color_actual = "#000000"
+        self.grosor_pincel = 2
+        self.tool_actual = "pen"
+        self.last_x = 0
+        self.last_y = 0
+        
+        # Crear carpeta de imágenes
+        Path(self.carpeta_imagenes).mkdir(exist_ok=True)
+        
+        # Cargar datos
+        self.cargar_datos()
+        
+        # Crear interfaz
+        self.crear_interfaz()
+    
+    def crear_interfaz(self):
+        """Crear la interfaz principal"""
+        # Configurar estilos
+        self.configurar_estilos()
+        
+        # Frame principal con notebook (pestañas)
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Crear pestañas
+        self.crear_pestaña_dashboard()
+        self.crear_pestaña_bitacora()
+        self.crear_pestaña_calendario()
+        self.crear_pestaña_canvas()
+        self.crear_pestaña_galeria()
+        self.crear_pestaña_busqueda()
+        
+        # Bindear evento de cambio de pestaña
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
+    
+    def configurar_estilos(self):
+        """Configurar estilos de la interfaz"""
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        
+        # Configurar colores
+        self.style.configure('Title.TLabel', font=('Arial', 16, 'bold'))
+        self.style.configure('Subtitle.TLabel', font=('Arial', 12, 'bold'))
+        self.style.configure('Info.TLabel', font=('Arial', 10))
+    
+    def crear_pestaña_dashboard(self):
+        """Crear pestaña del dashboard"""
+        dashboard_frame = ttk.Frame(self.notebook)
+        self.notebook.add(dashboard_frame, text="🏠 Dashboard")
+        
+        # Título principal
+        title_label = ttk.Label(
+            dashboard_frame,
+            text="🎨 B.O.A.2.5.4 - Bitácora de Obras Artísticas",
+            style='Title.TLabel'
+        )
+        title_label.pack(pady=20)
+        
+        # Frame de estadísticas
+        stats_frame = ttk.LabelFrame(dashboard_frame, text="📊 Estadísticas", padding=20)
+        stats_frame.pack(fill="x", padx=20, pady=10)
+        
+        # Calcular estadísticas
+        total_entradas = len(self.entradas)
+        entradas_con_obras = len([e for e in self.entradas if e.get('obras')])
+        total_obras = sum(len(e.get('obras', [])) for e in self.entradas)
+        dibujos = sum(len([o for o in e.get('obras', []) if o.get('tipo') == 'dibujo']) for e in self.entradas)
+        fotos = sum(len([o for o in e.get('obras', []) if o.get('tipo') == 'foto']) for e in self.entradas)
+        
+        # Mostrar estadísticas en grid
+        stats_grid = ttk.Frame(stats_frame)
+        stats_grid.pack(fill="x")
+        
+        # Fila 1
+        ttk.Label(stats_grid, text="📝 Entradas de Bitácora:", style='Info.TLabel').grid(row=0, column=0, sticky="w", padx=10)
+        ttk.Label(stats_grid, text=str(total_entradas), font=('Arial', 12, 'bold')).grid(row=0, column=1, sticky="w")
+        
+        ttk.Label(stats_grid, text="🎨 Entradas con Obras:", style='Info.TLabel').grid(row=0, column=2, sticky="w", padx=10)
+        ttk.Label(stats_grid, text=str(entradas_con_obras), font=('Arial', 12, 'bold')).grid(row=0, column=3, sticky="w")
+        
+        # Fila 2
+        ttk.Label(stats_grid, text="🖼️ Total de Obras:", style='Info.TLabel').grid(row=1, column=0, sticky="w", padx=10)
+        ttk.Label(stats_grid, text=str(total_obras), font=('Arial', 12, 'bold')).grid(row=1, column=1, sticky="w")
+        
+        ttk.Label(stats_grid, text="🖌️ Dibujos Digitales:", style='Info.TLabel').grid(row=1, column=2, sticky="w", padx=10)
+        ttk.Label(stats_grid, text=str(dibujos), font=('Arial', 12, 'bold')).grid(row=1, column=3, sticky="w")
+        
+        # Fila 3
+        ttk.Label(stats_grid, text="📷 Fotos de Obras:", style='Info.TLabel').grid(row=2, column=0, sticky="w", padx=10)
+        ttk.Label(stats_grid, text=str(fotos), font=('Arial', 12, 'bold')).grid(row=2, column=1, sticky="w")
+        
+        # Entrada de hoy
+        entrada_hoy = self.obtener_entrada_fecha(self.fecha_seleccionada)
+        if entrada_hoy:
+            ttk.Label(stats_grid, text="📅 Entrada de Hoy:", style='Info.TLabel').grid(row=2, column=2, sticky="w", padx=10)
+            ttk.Label(stats_grid, text="✅ Registrada", font=('Arial', 10, 'bold'), foreground='green').grid(row=2, column=3, sticky="w")
+        else:
+            ttk.Label(stats_grid, text="📅 Entrada de Hoy:", style='Info.TLabel').grid(row=2, column=2, sticky="w", padx=10)
+            ttk.Label(stats_grid, text="❌ Pendiente", font=('Arial', 10, 'bold'), foreground='red').grid(row=2, column=3, sticky="w")
+        
+        # Frame de acciones rápidas
+        acciones_frame = ttk.LabelFrame(dashboard_frame, text="🚀 Acciones Rápidas", padding=20)
+        acciones_frame.pack(fill="x", padx=20, pady=10)
+        
+        # Botones de acciones
+        botones_frame = ttk.Frame(acciones_frame)
+        botones_frame.pack()
+        
+        ttk.Button(
+            botones_frame,
+            text="📝 Nueva Entrada de Bitácora",
+            command=self.nueva_entrada_hoy,
+            width=25
+        ).grid(row=0, column=0, padx=10, pady=5)
+        
+        ttk.Button(
+            botones_frame,
+            text="🎨 Crear Dibujo Digital",
+            command=lambda: self.cambiar_a_pestaña("Canvas"),
+            width=25
+        ).grid(row=0, column=1, padx=10, pady=5)
+        
+        ttk.Button(
+            botones_frame,
+            text="📷 Subir Foto de Obra",
+            command=self.subir_foto_rapida,
+            width=25
+        ).grid(row=1, column=0, padx=10, pady=5)
+        
+        ttk.Button(
+            botones_frame,
+            text="📅 Ver Calendario",
+            command=lambda: self.cambiar_a_pestaña("Calendario"),
+            width=25
+        ).grid(row=1, column=1, padx=10, pady=5)
+        
+        # Últimas entradas
+        recientes_frame = ttk.LabelFrame(dashboard_frame, text="📖 Últimas Entradas", padding=10)
+        recientes_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        self.actualizar_recientes(recientes_frame)
+    
+    def crear_pestaña_bitacora(self):
+        """Crear pestaña de bitácora"""
+        bitacora_frame = ttk.Frame(self.notebook)
+        self.notebook.add(bitacora_frame, text="📝 Bitácora")
+        
+        # Frame superior con fecha y controles
+        top_frame = ttk.Frame(bitacora_frame)
+        top_frame.pack(fill="x", padx=10, pady=10)
+        
+        ttk.Label(top_frame, text="📅 Fecha:", style='Subtitle.TLabel').pack(side="left")
+        
+        self.fecha_var = tk.StringVar(value=self.fecha_seleccionada.strftime("%d/%m/%Y"))
+        self.fecha_entry = ttk.Entry(top_frame, textvariable=self.fecha_var, width=12)
+        self.fecha_entry.pack(side="left", padx=10)
+        
+        ttk.Button(top_frame, text="Hoy", command=self.ir_a_hoy).pack(side="left", padx=5)
+        ttk.Button(top_frame, text="Cargar Fecha", command=self.cargar_fecha_entrada).pack(side="left", padx=5)
+        ttk.Button(top_frame, text="Guardar Entrada", command=self.guardar_entrada_actual).pack(side="right", padx=5)
+        
+        # Frame del editor de bitácora
+        editor_frame = ttk.LabelFrame(bitacora_frame, text="✍️ Entrada de Bitácora", padding=10)
+        editor_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Campo de título
+        titulo_frame = ttk.Frame(editor_frame)
+        titulo_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(titulo_frame, text="Título:").pack(side="left")
+        self.titulo_var = tk.StringVar()
+        self.titulo_entry = ttk.Entry(titulo_frame, textvariable=self.titulo_var, width=50)
+        self.titulo_entry.pack(side="left", padx=10, fill="x", expand=True)
+        
+        # Campo de categoría/estado de ánimo
+        meta_frame = ttk.Frame(editor_frame)
+        meta_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(meta_frame, text="Categoría:").pack(side="left")
+        self.categoria_var = tk.StringVar()
+        self.categoria_combo = ttk.Combobox(
+            meta_frame, 
+            textvariable=self.categoria_var,
+            values=["Inspiración", "Práctica", "Reflexión", "Proyecto", "Experimento", "Estudio"],
+            width=15
+        )
+        self.categoria_combo.pack(side="left", padx=10)
+        
+        ttk.Label(meta_frame, text="Estado de Ánimo:").pack(side="left", padx=(20,5))
+        self.animo_var = tk.StringVar()
+        self.animo_combo = ttk.Combobox(
+            meta_frame,
+            textvariable=self.animo_var,
+            values=["😊 Feliz", "🤔 Pensativo", "😤 Frustrado", "🤩 Inspirado", "😴 Cansado", "🔥 Motivado"],
+            width=15
+        )
+        self.animo_combo.pack(side="left", padx=5)
+        
+        # Área de texto principal
+        texto_frame = ttk.Frame(editor_frame)
+        texto_frame.pack(fill="both", expand=True, pady=10)
+        
+        ttk.Label(texto_frame, text="Contenido de la entrada:").pack(anchor="w")
+        
+        self.texto_bitacora = scrolledtext.ScrolledText(
+            texto_frame,
+            wrap=tk.WORD,
+            width=80,
+            height=15,
+            font=('Arial', 11)
+        )
+        self.texto_bitacora.pack(fill="both", expand=True, pady=5)
+        
+        # Frame de obras asociadas
+        obras_frame = ttk.LabelFrame(editor_frame, text="🎨 Obras Asociadas a Esta Entrada", padding=10)
+        obras_frame.pack(fill="x", pady=10)
+        
+        # Botones para añadir obras
+        botones_obras_frame = ttk.Frame(obras_frame)
+        botones_obras_frame.pack(fill="x")
+        
+        ttk.Button(
+            botones_obras_frame,
+            text="🎨 Crear Dibujo",
+            command=self.crear_dibujo_para_entrada
+        ).pack(side="left", padx=5)
+        
+        ttk.Button(
+            botones_obras_frame,
+            text="📷 Subir Foto",
+            command=self.subir_foto_para_entrada
+        ).pack(side="left", padx=5)
+        
+        # Lista de obras de la entrada actual
+        self.lista_obras_frame = ttk.Frame(obras_frame)
+        self.lista_obras_frame.pack(fill="x", pady=10)
+        
+        self.cargar_entrada_actual()
+    
+    def crear_pestaña_calendario(self):
+        """Crear pestaña de calendario"""
+        calendario_frame = ttk.Frame(self.notebook)
+        self.notebook.add(calendario_frame, text="📅 Calendario")
+        
+        # Frame superior con controles
+        control_frame = ttk.Frame(calendario_frame)
+        control_frame.pack(fill="x", padx=10, pady=10)
+        
+        ttk.Label(control_frame, text="📅 Navegación:", style='Subtitle.TLabel').pack(side="left")
+        
+        self.mes_var = tk.StringVar(value=str(self.fecha_seleccionada.month))
+        self.año_var = tk.StringVar(value=str(self.fecha_seleccionada.year))
+        
+        ttk.Button(control_frame, text="◀", command=self.mes_anterior).pack(side="left", padx=5)
+        
+        mes_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.mes_var,
+            values=[f"{i} - {calendar.month_name[i]}" for i in range(1, 13)],
+            width=15,
+            state="readonly"
+        )
+        mes_combo.pack(side="left", padx=5)
+        mes_combo.bind("<<ComboboxSelected>>", self.actualizar_calendario)
+        
+        año_combo = ttk.Combobox(
+            control_frame,
+            textvariable=self.año_var,
+            values=[str(i) for i in range(2020, 2030)],
+            width=8,
+            state="readonly"
+        )
+        año_combo.pack(side="left", padx=5)
+        año_combo.bind("<<ComboboxSelected>>", self.actualizar_calendario)
+        
+        ttk.Button(control_frame, text="▶", command=self.mes_siguiente).pack(side="left", padx=5)
+        ttk.Button(control_frame, text="Hoy", command=self.ir_a_hoy_calendario).pack(side="left", padx=20)
+        
+        # Frame del calendario
+        self.calendario_frame = ttk.LabelFrame(calendario_frame, text="📅 Calendario", padding=10)
+        self.calendario_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        self.crear_widget_calendario()
+        
+        # Frame de información del día seleccionado
+        self.info_dia_frame = ttk.LabelFrame(calendario_frame, text="📝 Información del Día", padding=10)
+        self.info_dia_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.actualizar_info_dia()
+    
+    def crear_pestaña_canvas(self):
+        """Crear pestaña de canvas de dibujo"""
+        canvas_frame = ttk.Frame(self.notebook)
+        self.notebook.add(canvas_frame, text="🎨 Canvas")
+        
+        # Frame de herramientas
+        tools_frame = ttk.LabelFrame(canvas_frame, text="🛠️ Herramientas", padding=10)
+        tools_frame.pack(fill="x", padx=10, pady=5)
+        
+        # Primera fila de herramientas
+        tools_row1 = ttk.Frame(tools_frame)
+        tools_row1.pack(fill="x")
+        
+        ttk.Label(tools_row1, text="Herramienta:").pack(side="left")
+        
+        self.tool_var = tk.StringVar(value="pen")
+        ttk.Radiobutton(tools_row1, text="✏️ Lápiz", variable=self.tool_var, value="pen").pack(side="left", padx=10)
+        ttk.Radiobutton(tools_row1, text="🧽 Borrador", variable=self.tool_var, value="eraser").pack(side="left", padx=10)
+        
+        ttk.Label(tools_row1, text="Color:", font=('Arial', 10)).pack(side="left", padx=(20,5))
+        
+        # Botones de colores
+        colores = ["#000000", "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#FFA500"]
+        for color in colores:
+            btn = tk.Button(
+                tools_row1,
+                bg=color,
+                width=3,
+                height=1,
+                command=lambda c=color: self.cambiar_color_canvas(c)
+            )
+            btn.pack(side="left", padx=1)
+        
+        # Segunda fila
+        tools_row2 = ttk.Frame(tools_frame)
+        tools_row2.pack(fill="x", pady=5)
+        
+        ttk.Label(tools_row2, text="Grosor:").pack(side="left")
+        
+        self.grosor_var = tk.IntVar(value=2)
+        grosor_scale = ttk.Scale(
+            tools_row2,
+            from_=1,
+            to=20,
+            variable=self.grosor_var,
+            orient="horizontal",
+            length=200
+        )
+        grosor_scale.pack(side="left", padx=10)
+        
+        self.grosor_label = ttk.Label(tools_row2, text="2px")
+        self.grosor_label.pack(side="left", padx=5)
+        grosor_scale.configure(command=self.actualizar_grosor_label)
+        
+        # Botones de acción
+        ttk.Button(tools_row2, text="🗑️ Limpiar", command=self.limpiar_canvas).pack(side="right", padx=5)
+        ttk.Button(tools_row2, text="💾 Guardar Dibujo", command=self.guardar_dibujo).pack(side="right", padx=5)
+        
+        # Canvas de dibujo
+        canvas_container = ttk.LabelFrame(canvas_frame, text="🎨 Área de Dibujo", padding=10)
+        canvas_container.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.canvas_dibujo = tk.Canvas(
+            canvas_container,
+            bg="white",
+            width=800,
+            height=500,
+            cursor="crosshair"
+        )
+        self.canvas_dibujo.pack()
+        
+        # Eventos del canvas
+        self.canvas_dibujo.bind("<Button-1>", self.canvas_click)
+        self.canvas_dibujo.bind("<B1-Motion>", self.canvas_drag)
+        self.canvas_dibujo.bind("<ButtonRelease-1>", self.canvas_release)
+    
+    def crear_pestaña_galeria(self):
+        """Crear pestaña de galería"""
+        galeria_frame = ttk.Frame(self.notebook)
+        self.notebook.add(galeria_frame, text="🖼️ Galería")
+        
+        # Frame de controles
+        controles_frame = ttk.Frame(galeria_frame)
+        controles_frame.pack(fill="x", padx=10, pady=10)
+        
+        ttk.Label(controles_frame, text="🖼️ Galería de Obras", style='Title.TLabel').pack(side="left")
+        
+        ttk.Button(controles_frame, text="🔄 Actualizar", command=self.actualizar_galeria).pack(side="right", padx=5)
+        ttk.Button(controles_frame, text="💾 Exportar", command=self.exportar_datos).pack(side="right", padx=5)
+        
+        # Frame con scroll para la galería
+        self.galeria_scroll_frame = ttk.Frame(galeria_frame)
+        self.galeria_scroll_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        self.actualizar_galeria()
+    
+    def crear_pestaña_busqueda(self):
+        """Crear pestaña de búsqueda"""
+        busqueda_frame = ttk.Frame(self.notebook)
+        self.notebook.add(busqueda_frame, text="🔍 Búsqueda")
+        
+        # Frame de búsqueda
+        search_frame = ttk.LabelFrame(busqueda_frame, text="🔍 Buscar en Bitácora", padding=10)
+        search_frame.pack(fill="x", padx=10, pady=10)
+        
+        search_controls = ttk.Frame(search_frame)
+        search_controls.pack(fill="x")
+        
+        ttk.Label(search_controls, text="Buscar:").pack(side="left")
+        
+        self.busqueda_var = tk.StringVar()
+        self.busqueda_entry = ttk.Entry(search_controls, textvariable=self.busqueda_var, width=40)
+        self.busqueda_entry.pack(side="left", padx=10, fill="x", expand=True)
+        self.busqueda_entry.bind("<Return>", lambda e: self.realizar_busqueda())
+        
+        ttk.Button(search_controls, text="🔍 Buscar", command=self.realizar_busqueda).pack(side="left", padx=5)
+        ttk.Button(search_controls, text="🗑️ Limpiar", command=self.limpiar_busqueda).pack(side="left", padx=5)
+        
+        # Opciones de búsqueda
+        opciones_frame = ttk.Frame(search_frame)
+        opciones_frame.pack(fill="x", pady=5)
+        
+        self.buscar_titulo = tk.BooleanVar(value=True)
+        self.buscar_contenido = tk.BooleanVar(value=True)
+        self.buscar_categoria = tk.BooleanVar(value=True)
+        
+        ttk.Checkbutton(opciones_frame, text="En títulos", variable=self.buscar_titulo).pack(side="left", padx=10)
+        ttk.Checkbutton(opciones_frame, text="En contenido", variable=self.buscar_contenido).pack(side="left", padx=10)
+        ttk.Checkbutton(opciones_frame, text="En categorías", variable=self.buscar_categoria).pack(side="left", padx=10)
+        
+        # Frame de resultados
+        self.resultados_frame = ttk.LabelFrame(busqueda_frame, text="📋 Resultados", padding=10)
+        self.resultados_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        # Área de resultados con scroll
+        self.resultados_text = scrolledtext.ScrolledText(
+            self.resultados_frame,
+            wrap=tk.WORD,
+            width=80,
+            height=20,
+            font=('Arial', 10)
+        )
+        self.resultados_text.pack(fill="both", expand=True)
+    
+    # Métodos para el dashboard
+    def actualizar_recientes(self, parent):
+        """Actualizar la lista de entradas recientes"""
+        # Limpiar frame
+        for widget in parent.winfo_children():
+            widget.destroy()
+        
+        if not self.entradas:
+            ttk.Label(parent, text="No hay entradas aún. ¡Crea tu primera entrada!").pack(pady=20)
+            return
+        
+        # Ordenar entradas por fecha (más recientes primero)
+        entradas_ordenadas = sorted(
+            self.entradas,
+            key=lambda x: datetime.datetime.fromisoformat(x['fecha']),
+            reverse=True
+        )[:5]  # Solo las 5 más recientes
+        
+        for entrada in entradas_ordenadas:
+            entrada_frame = ttk.Frame(parent)
+            entrada_frame.pack(fill="x", pady=5)
+            
+            fecha_obj = datetime.datetime.fromisoformat(entrada['fecha'])
+            fecha_str = fecha_obj.strftime("%d/%m/%Y")
+            
+            ttk.Label(
+                entrada_frame,
+                text=f"📅 {fecha_str} - {entrada.get('titulo', 'Sin título')}",
+                font=('Arial', 10, 'bold')
+            ).pack(side="left")
+            
+            if entrada.get('obras'):
+                ttk.Label(
+                    entrada_frame,
+                    text=f"🎨 {len(entrada['obras'])} obra(s)",
+                    font=('Arial', 9),
+                    foreground='blue'
+                ).pack(side="right")
+    
+    def nueva_entrada_hoy(self):
+        """Crear nueva entrada para hoy"""
+        self.fecha_seleccionada = datetime.date.today()
+        self.cambiar_a_pestaña("Bitácora")
+        self.cargar_entrada_actual()
+    
+    def cambiar_a_pestaña(self, nombre_pestaña):
+        """Cambiar a una pestaña específica"""
+        pestañas = {
+            "Dashboard": 0,
+            "Bitácora": 1,
+            "Calendario": 2,
+            "Canvas": 3,
+            "Galería": 4,
+            "Búsqueda": 5
+        }
+        if nombre_pestaña in pestañas:
+            self.notebook.select(pestañas[nombre_pestaña])
+    
+    # Métodos para la bitácora
+    def obtener_entrada_fecha(self, fecha):
+        """Obtener entrada para una fecha específica"""
+        fecha_str = fecha.isoformat()
+        for entrada in self.entradas:
+            if entrada['fecha'].startswith(fecha_str):
+                return entrada
+        return None
+    
+    def cargar_entrada_actual(self):
+        """Cargar la entrada de la fecha seleccionada"""
+        entrada = self.obtener_entrada_fecha(self.fecha_seleccionada)
+        
+        if entrada:
+            self.titulo_var.set(entrada.get('titulo', ''))
+            self.categoria_var.set(entrada.get('categoria', ''))
+            self.animo_var.set(entrada.get('animo', ''))
+            self.texto_bitacora.delete(1.0, tk.END)
+            self.texto_bitacora.insert(1.0, entrada.get('contenido', ''))
+        else:
+            # Limpiar campos para nueva entrada
+            self.titulo_var.set('')
+            self.categoria_var.set('')
+            self.animo_var.set('')
+            self.texto_bitacora.delete(1.0, tk.END)
+        
+        self.actualizar_lista_obras_entrada()
+    
+    def actualizar_lista_obras_entrada(self):
+        """Actualizar la lista de obras de la entrada actual"""
+        # Limpiar frame
+        for widget in self.lista_obras_frame.winfo_children():
+            widget.destroy()
+        
+        entrada = self.obtener_entrada_fecha(self.fecha_seleccionada)
+        if not entrada or not entrada.get('obras'):
+            ttk.Label(self.lista_obras_frame, text="No hay obras asociadas a esta entrada").pack()
+            return
+        
+        for i, obra in enumerate(entrada['obras']):
+            obra_frame = ttk.Frame(self.lista_obras_frame)
+            obra_frame.pack(fill="x", pady=2)
+            
+            tipo_emoji = "🎨" if obra['tipo'] == 'dibujo' else "📷"
+            ttk.Label(
+                obra_frame,
+                text=f"{tipo_emoji} {obra['titulo']} ({obra['tipo']})"
+            ).pack(side="left")
+            
+            ttk.Button(
+                obra_frame,
+                text="🗑️",
+                command=lambda idx=i: self.eliminar_obra_entrada(idx),
+                width=3
+            ).pack(side="right")
+    
+    def guardar_entrada_actual(self):
+        """Guardar la entrada actual"""
+        fecha_str = self.fecha_seleccionada.isoformat()
+        
+        # Buscar entrada existente
+        entrada_existente = None
+        for i, entrada in enumerate(self.entradas):
+            if entrada['fecha'].startswith(fecha_str):
+                entrada_existente = i
+                break
+        
+        # Crear datos de la entrada
+        entrada_data = {
+            'fecha': datetime.datetime.combine(self.fecha_seleccionada, datetime.time()).isoformat(),
+            'titulo': self.titulo_var.get(),
+            'categoria': self.categoria_var.get(),
+            'animo': self.animo_var.get(),
+            'contenido': self.texto_bitacora.get(1.0, tk.END).strip(),
+            'obras': self.entradas[entrada_existente]['obras'] if entrada_existente is not None else []
+        }
+        
+        if entrada_existente is not None:
+            self.entradas[entrada_existente] = entrada_data
+        else:
+            self.entradas.append(entrada_data)
+        
+        self.guardar_datos()
+        messagebox.showinfo("Éxito", "Entrada guardada correctamente")
+    
+    def ir_a_hoy(self):
+        """Ir a la fecha de hoy"""
+        self.fecha_seleccionada = datetime.date.today()
+        self.fecha_var.set(self.fecha_seleccionada.strftime("%d/%m/%Y"))
+        self.cargar_entrada_actual()
+    
+    def cargar_fecha_entrada(self):
+        """Cargar entrada de la fecha especificada"""
+        try:
+            fecha_str = self.fecha_var.get()
+            self.fecha_seleccionada = datetime.datetime.strptime(fecha_str, "%d/%m/%Y").date()
+            self.cargar_entrada_actual()
+        except ValueError:
+            messagebox.showerror("Error", "Formato de fecha inválido. Use DD/MM/YYYY")
+    
+    # Métodos para el calendario
+    def crear_widget_calendario(self):
+        """Crear el widget del calendario"""
+        # Limpiar frame
+        for widget in self.calendario_frame.winfo_children():
+            widget.destroy()
+        
+        mes = int(self.mes_var.get().split()[0])
+        año = int(self.año_var.get())
+        
+        # Título del mes
+        titulo_mes = f"{calendar.month_name[mes]} {año}"
+        ttk.Label(self.calendario_frame, text=titulo_mes, style='Subtitle.TLabel').pack(pady=10)
+        
+        # Grid del calendario
+        cal_grid = ttk.Frame(self.calendario_frame)
+        cal_grid.pack()
+        
+        # Días de la semana
+        dias_semana = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+        for i, dia in enumerate(dias_semana):
+            ttk.Label(cal_grid, text=dia, font=('Arial', 10, 'bold')).grid(row=0, column=i, padx=2, pady=2)
+        
+        # Obtener calendario del mes
+        cal = calendar.monthcalendar(año, mes)
+        
+        for semana_num, semana in enumerate(cal):
+            for dia_num, dia in enumerate(semana):
+                if dia == 0:
+                    continue
+                
+                fecha_dia = datetime.date(año, mes, dia)
+                entrada_dia = self.obtener_entrada_fecha(fecha_dia)
+                
+                # Crear botón para el día
+                if entrada_dia:
+                    # Día con entrada
+                    btn = tk.Button(
+                        cal_grid,
+                        text=str(dia),
+                        bg='lightgreen',
+                        fg='darkgreen',
+                        font=('Arial', 9, 'bold'),
+                        width=4,
+                        command=lambda d=fecha_dia: self.seleccionar_fecha_calendario(d)
+                    )
+                else:
+                    # Día sin entrada
+                    btn = tk.Button(
+                        cal_grid,
+                        text=str(dia),
+                        bg='white',
+                        fg='black',
+                        font=('Arial', 9),
+                        width=4,
+                        command=lambda d=fecha_dia: self.seleccionar_fecha_calendario(d)
+                    )
+                
+                # Resaltar día actual
+                if fecha_dia == datetime.date.today():
+                    btn.configure(relief='solid', borderwidth=2)
+                
+                # Resaltar día seleccionado
+                if fecha_dia == self.fecha_seleccionada:
+                    btn.configure(bg='lightblue')
+                
+                btn.grid(row=semana_num+1, column=dia_num, padx=1, pady=1)
+    
+    def seleccionar_fecha_calendario(self, fecha):
+        """Seleccionar una fecha del calendario"""
+        self.fecha_seleccionada = fecha
+        self.crear_widget_calendario()
+        self.actualizar_info_dia()
+    
+    def actualizar_info_dia(self):
+        """Actualizar información del día seleccionado"""
+        # Limpiar frame
+        for widget in self.info_dia_frame.winfo_children():
+            widget.destroy()
+        
+        fecha_str = self.fecha_seleccionada.strftime("%d/%m/%Y")
+        ttk.Label(self.info_dia_frame, text=f"📅 {fecha_str}", style='Subtitle.TLabel').pack(anchor="w")
+        
+        entrada = self.obtener_entrada_fecha(self.fecha_seleccionada)
+        if entrada:
+            ttk.Label(self.info_dia_frame, text=f"📝 {entrada.get('titulo', 'Sin título')}", font=('Arial', 10, 'bold')).pack(anchor="w", pady=2)
+            ttk.Label(self.info_dia_frame, text=f"📂 {entrada.get('categoria', 'Sin categoría')}", font=('Arial', 9)).pack(anchor="w")
+            ttk.Label(self.info_dia_frame, text=f"{entrada.get('animo', 'Sin estado de ánimo')}", font=('Arial', 9)).pack(anchor="w")
+            
+            if entrada.get('obras'):
+                ttk.Label(self.info_dia_frame, text=f"🎨 {len(entrada['obras'])} obra(s) asociada(s)", font=('Arial', 9), foreground='blue').pack(anchor="w")
+            
+            # Botón para editar
+            ttk.Button(
+                self.info_dia_frame,
+                text="✏️ Editar Entrada",
+                command=lambda: [self.cambiar_a_pestaña("Bitácora"), self.cargar_entrada_actual()]
+            ).pack(anchor="w", pady=5)
+        else:
+            ttk.Label(self.info_dia_frame, text="Sin entrada para este día").pack(anchor="w", pady=2)
+            ttk.Button(
+                self.info_dia_frame,
+                text="➕ Crear Entrada",
+                command=lambda: [self.cambiar_a_pestaña("Bitácora"), self.cargar_entrada_actual()]
+            ).pack(anchor="w", pady=5)
+    
+    def mes_anterior(self):
+        """Ir al mes anterior"""
+        mes_actual = int(self.mes_var.get().split()[0])
+        año_actual = int(self.año_var.get())
+        
+        if mes_actual == 1:
+            nuevo_mes = 12
+            nuevo_año = año_actual - 1
+        else:
+            nuevo_mes = mes_actual - 1
+            nuevo_año = año_actual
+        
+        self.mes_var.set(f"{nuevo_mes} - {calendar.month_name[nuevo_mes]}")
+        self.año_var.set(str(nuevo_año))
+        self.crear_widget_calendario()
+    
+    def mes_siguiente(self):
+        """Ir al mes siguiente"""
+        mes_actual = int(self.mes_var.get().split()[0])
+        año_actual = int(self.año_var.get())
+        
+        if mes_actual == 12:
+            nuevo_mes = 1
+            nuevo_año = año_actual + 1
+        else:
+            nuevo_mes = mes_actual + 1
+            nuevo_año = año_actual
+        
+        self.mes_var.set(f"{nuevo_mes} - {calendar.month_name[nuevo_mes]}")
+        self.año_var.set(str(nuevo_año))
+        self.crear_widget_calendario()
+    
+    def ir_a_hoy_calendario(self):
+        """Ir a hoy en el calendario"""
+        hoy = datetime.date.today()
+        self.mes_var.set(f"{hoy.month} - {calendar.month_name[hoy.month]}")
+        self.año_var.set(str(hoy.year))
+        self.fecha_seleccionada = hoy
+        self.crear_widget_calendario()
+        self.actualizar_info_dia()
+    
+    def actualizar_calendario(self, event=None):
+        """Actualizar el calendario cuando cambian mes/año"""
+        self.crear_widget_calendario()
+    
+    # Métodos para el canvas
+    def cambiar_color_canvas(self, color):
+        """Cambiar color del pincel"""
+        self.color_actual = color
+    
+    def actualizar_grosor_label(self, valor):
+        """Actualizar etiqueta del grosor"""
+        grosor = int(float(valor))
+        self.grosor_label.configure(text=f"{grosor}px")
+        self.grosor_pincel = grosor
+    
+    def canvas_click(self, event):
+        """Evento click en canvas"""
+        self.last_x = event.x
+        self.last_y = event.y
+        self.tool_actual = self.tool_var.get()
+    
+    def canvas_drag(self, event):
+        """Evento arrastrar en canvas"""
+        if self.tool_actual == "pen":
+            self.canvas_dibujo.create_line(
+                self.last_x, self.last_y, event.x, event.y,
+                width=self.grosor_pincel,
+                fill=self.color_actual,
+                capstyle=tk.ROUND,
+                smooth=tk.TRUE
+            )
+        elif self.tool_actual == "eraser":
+            self.canvas_dibujo.create_oval(
+                event.x - self.grosor_pincel,
+                event.y - self.grosor_pincel,
+                event.x + self.grosor_pincel,
+                event.y + self.grosor_pincel,
+                fill="white",
+                outline="white"
+            )
+        
+        self.last_x = event.x
+        self.last_y = event.y
+    
+    def canvas_release(self, event):
+        """Evento soltar botón en canvas"""
+        pass
+    
+    def limpiar_canvas(self):
+        """Limpiar el canvas"""
+        if self.canvas_dibujo:
+            self.canvas_dibujo.delete("all")
+    
+    def guardar_dibujo(self):
+        """Guardar dibujo actual"""
+        if not self.canvas_dibujo:
+            return
+        
+        titulo = simpledialog.askstring("Título", "Título del dibujo:")
+        if not titulo:
+            return
+        
+        # Preguntar si asociar a entrada de hoy
+        asociar = messagebox.askyesno(
+            "Asociar a Entrada", 
+            f"¿Deseas asociar este dibujo a la entrada de bitácora de hoy ({datetime.date.today().strftime('%d/%m/%Y')})?"
+        )
+        
+        try:
+            # Guardar imagen
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_archivo = f"dibujo_{timestamp}.ps"
+            ruta_archivo = os.path.join(self.carpeta_imagenes, nombre_archivo)
+            
+            self.canvas_dibujo.postscript(file=ruta_archivo)
+            
+            # Crear registro de obra
+            obra = {
+                'titulo': titulo,
+                'tipo': 'dibujo',
+                'archivo': nombre_archivo,
+                'fecha_creacion': datetime.datetime.now().isoformat(),
+                'color_principal': self.color_actual,
+                'grosor_pincel': self.grosor_pincel
+            }
+            
+            if asociar:
+                # Asociar a entrada de hoy
+                fecha_hoy = datetime.date.today()
+                entrada_hoy = self.obtener_entrada_fecha(fecha_hoy)
+                
+                if entrada_hoy:
+                    if 'obras' not in entrada_hoy:
+                        entrada_hoy['obras'] = []
+                    entrada_hoy['obras'].append(obra)
+                else:
+                    # Crear nueva entrada para hoy
+                    nueva_entrada = {
+                        'fecha': datetime.datetime.combine(fecha_hoy, datetime.time()).isoformat(),
+                        'titulo': f'Entrada del {fecha_hoy.strftime("%d/%m/%Y")}',
+                        'categoria': 'Práctica',
+                        'animo': '🎨 Creativo',
+                        'contenido': f'Creé un dibujo digital: "{titulo}"',
+                        'obras': [obra]
+                    }
+                    self.entradas.append(nueva_entrada)
+            
+            self.guardar_datos()
+            messagebox.showinfo("Éxito", f"Dibujo '{titulo}' guardado correctamente")
+            
+            # Limpiar canvas
+            self.limpiar_canvas()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar el dibujo: {str(e)}")
+    
+    # Métodos para manejo de fotos
+    def subir_foto_rapida(self):
+        """Subir foto desde el dashboard"""
+        self.subir_foto_para_entrada()
+    
+    def subir_foto_para_entrada(self):
+        """Subir foto y asociarla a entrada"""
+        archivo = filedialog.askopenfilename(
+            title="Seleccionar foto de obra",
+            filetypes=[
+                ("Imágenes", "*.jpg *.jpeg *.png *.bmp *.gif *.tiff"),
+                ("Todos los archivos", "*.*")
+            ]
+        )
+        
+        if not archivo:
+            return
+        
+        titulo = simpledialog.askstring("Título", "Título de la obra:")
+        if not titulo:
+            return
+        
+        descripcion = simpledialog.askstring("Descripción", "Descripción de la obra (opcional):")
+        categoria = simpledialog.askstring("Categoría", "Categoría (pintura, escultura, dibujo, etc.):")
+        
+        try:
+            # Copiar archivo
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            extension = os.path.splitext(archivo)[1]
+            nombre_archivo = f"foto_{timestamp}{extension}"
+            ruta_destino = os.path.join(self.carpeta_imagenes, nombre_archivo)
+            
+            shutil.copy2(archivo, ruta_destino)
+            
+            # Crear registro de obra
+            obra = {
+                'titulo': titulo,
+                'descripcion': descripcion or 'Obra fotografiada',
+                'categoria': categoria or 'Obra artística',
+                'tipo': 'foto',
+                'archivo': nombre_archivo,
+                'fecha_creacion': datetime.datetime.now().isoformat(),
+                'archivo_original': os.path.basename(archivo)
+            }
+            
+            # Preguntar si asociar a entrada actual
+            if hasattr(self, 'fecha_seleccionada'):
+                fecha_str = self.fecha_seleccionada.strftime('%d/%m/%Y')
+                asociar = messagebox.askyesno(
+                    "Asociar a Entrada",
+                    f"¿Deseas asociar esta foto a la entrada del {fecha_str}?"
+                )
+                
+                if asociar:
+                    entrada = self.obtener_entrada_fecha(self.fecha_seleccionada)
+                    if entrada:
+                        if 'obras' not in entrada:
+                            entrada['obras'] = []
+                        entrada['obras'].append(obra)
+                        self.actualizar_lista_obras_entrada()
+                    else:
+                        # Crear nueva entrada
+                        nueva_entrada = {
+                            'fecha': datetime.datetime.combine(self.fecha_seleccionada, datetime.time()).isoformat(),
+                            'titulo': f'Entrada del {fecha_str}',
+                            'categoria': 'Documentación',
+                            'animo': '📷 Documentando',
+                            'contenido': f'Subí una foto de mi obra: "{titulo}"',
+                            'obras': [obra]
+                        }
+                        self.entradas.append(nueva_entrada)
+                        self.actualizar_lista_obras_entrada()
+            
+            self.guardar_datos()
+            messagebox.showinfo("Éxito", f"Foto '{titulo}' subida correctamente")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo subir la foto: {str(e)}")
+    
+    def crear_dibujo_para_entrada(self):
+        """Ir al canvas para crear un dibujo"""
+        self.cambiar_a_pestaña("Canvas")
+    
+    def eliminar_obra_entrada(self, indice):
+        """Eliminar obra de la entrada actual"""
+        if messagebox.askyesno("Confirmar", "¿Eliminar esta obra de la entrada?"):
+            entrada = self.obtener_entrada_fecha(self.fecha_seleccionada)
+            if entrada and entrada.get('obras') and indice < len(entrada['obras']):
+                obra_eliminada = entrada['obras'].pop(indice)
+                
+                # Eliminar archivo si existe
+                try:
+                    ruta_archivo = os.path.join(self.carpeta_imagenes, obra_eliminada['archivo'])
+                    if os.path.exists(ruta_archivo):
+                        os.remove(ruta_archivo)
+                except Exception as e:
+                    print(f"Error al eliminar archivo: {e}")
+                
+                self.guardar_datos()
+                self.actualizar_lista_obras_entrada()
+                messagebox.showinfo("Éxito", "Obra eliminada correctamente")
+    
+    # Métodos para la galería
+    def actualizar_galeria(self):
+        """Actualizar la galería de obras"""
+        # Limpiar frame
+        for widget in self.galeria_scroll_frame.winfo_children():
+            widget.destroy()
+        
+        # Recopilar todas las obras
+        todas_las_obras = []
+        for entrada in self.entradas:
+            if entrada.get('obras'):
+                for obra in entrada['obras']:
+                    obra_con_fecha = obra.copy()
+                    obra_con_fecha['fecha_entrada'] = entrada['fecha']
+                    todas_las_obras.append(obra_con_fecha)
+        
+        if not todas_las_obras:
+            ttk.Label(self.galeria_scroll_frame, text="No hay obras en la galería").pack(pady=50)
+            return
+        
+        # Ordenar por fecha de creación
+        todas_las_obras.sort(key=lambda x: x['fecha_creacion'], reverse=True)
+        
+        # Crear canvas con scrollbar
+        canvas = tk.Canvas(self.galeria_scroll_frame)
+        scrollbar = ttk.Scrollbar(self.galeria_scroll_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Mostrar obras en grid
+        for i, obra in enumerate(todas_las_obras):
+            self.crear_tarjeta_obra_galeria(scrollable_frame, obra, i)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+    
+    def crear_tarjeta_obra_galeria(self, parent, obra, index):
+        """Crear tarjeta de obra para la galería"""
+        # Frame de la tarjeta
+        card_frame = ttk.LabelFrame(parent, text=f"🎨 {obra['titulo']}", padding=10)
+        card_frame.pack(fill="x", pady=5, padx=10)
+        
+        # Información de la obra
+        info_frame = ttk.Frame(card_frame)
+        info_frame.pack(fill="x")
+        
+        # Tipo y título
+        tipo_emoji = "🎨" if obra['tipo'] == 'dibujo' else "📷"
+        ttk.Label(
+            info_frame,
+            text=f"{tipo_emoji} {obra['titulo']} ({obra['tipo'].title()})",
+            font=('Arial', 11, 'bold')
+        ).pack(anchor="w")
+        
+        # Descripción si existe
+        if obra.get('descripcion'):
+            ttk.Label(info_frame, text=obra['descripcion'], font=('Arial', 9)).pack(anchor="w")
+        
+        # Fecha de creación
+        fecha_creacion = datetime.datetime.fromisoformat(obra['fecha_creacion'])
+        ttk.Label(
+            info_frame,
+            text=f"📅 Creado: {fecha_creacion.strftime('%d/%m/%Y %H:%M')}",
+            font=('Arial', 9)
+        ).pack(anchor="w")
+        
+        # Información específica del tipo
+        if obra['tipo'] == 'dibujo':
+            ttk.Label(
+                info_frame,
+                text=f"🎨 Color: {obra.get('color_principal', 'N/A')} | Grosor: {obra.get('grosor_pincel', 'N/A')}px",
+                font=('Arial', 8)
+            ).pack(anchor="w")
+        elif obra['tipo'] == 'foto':
+            if obra.get('categoria'):
+                ttk.Label(
+                    info_frame,
+                    text=f"📂 Categoría: {obra['categoria']}",
+                    font=('Arial', 8)
+                ).pack(anchor="w")
+        
+        # Archivo
+        ttk.Label(
+            info_frame,
+            text=f"📁 {obra['archivo']}",
+            font=('Arial', 8),
+            foreground='gray'
+        ).pack(anchor="w")
+    
+    # Métodos para búsqueda
+    def realizar_busqueda(self):
+        """Realizar búsqueda en la bitácora"""
+        termino = self.busqueda_var.get().strip().lower()
+        
+        if not termino:
+            messagebox.showwarning("Advertencia", "Ingrese un término de búsqueda")
+            return
+        
+        # Limpiar resultados
+        self.resultados_text.delete(1.0, tk.END)
+        
+        resultados = []
+        
+        for entrada in self.entradas:
+            coincidencias = []
+            
+            # Buscar en título
+            if self.buscar_titulo.get() and termino in entrada.get('titulo', '').lower():
+                coincidencias.append("título")
+            
+            # Buscar en contenido
+            if self.buscar_contenido.get() and termino in entrada.get('contenido', '').lower():
+                coincidencias.append("contenido")
+            
+            # Buscar en categoría
+            if self.buscar_categoria.get() and termino in entrada.get('categoria', '').lower():
+                coincidencias.append("categoría")
+            
+            if coincidencias:
+                entrada_resultado = entrada.copy()
+                entrada_resultado['coincidencias'] = coincidencias
+                resultados.append(entrada_resultado)
+        
+        # Mostrar resultados
+        if not resultados:
+            self.resultados_text.insert(tk.END, f"No se encontraron resultados para '{termino}'\n")
+        else:
+            self.resultados_text.insert(tk.END, f"Se encontraron {len(resultados)} resultado(s) para '{termino}':\n\n")
+            
+            for resultado in resultados:
+                fecha_obj = datetime.datetime.fromisoformat(resultado['fecha'])
+                fecha_str = fecha_obj.strftime("%d/%m/%Y")
+                
+                self.resultados_text.insert(tk.END, f"📅 {fecha_str} - {resultado.get('titulo', 'Sin título')}\n")
+                self.resultados_text.insert(tk.END, f"   Coincidencias en: {', '.join(resultado['coincidencias'])}\n")
+                
+                if resultado.get('categoria'):
+                    self.resultados_text.insert(tk.END, f"   📂 Categoría: {resultado['categoria']}\n")
+                
+                if resultado.get('obras'):
+                    self.resultados_text.insert(tk.END, f"   🎨 {len(resultado['obras'])} obra(s) asociada(s)\n")
+                
+                # Mostrar fragmento del contenido
+                contenido = resultado.get('contenido', '')
+                if contenido and len(contenido) > 100:
+                    contenido = contenido[:100] + "..."
+                
+                if contenido:
+                    self.resultados_text.insert(tk.END, f"   📝 {contenido}\n")
+                
+                self.resultados_text.insert(tk.END, "\n" + "-"*50 + "\n\n")
+    
+    def limpiar_busqueda(self):
+        """Limpiar búsqueda"""
+        self.busqueda_var.set("")
+        self.resultados_text.delete(1.0, tk.END)
+    
+    # Métodos de datos
+    def cargar_datos(self):
+        """Cargar datos desde archivo"""
+        try:
+            if os.path.exists(self.archivo_datos):
+                with open(self.archivo_datos, 'r', encoding='utf-8') as f:
+                    self.entradas = json.load(f)
+        except Exception as e:
+            print(f"Error al cargar datos: {e}")
+            self.entradas = []
+    
+    def guardar_datos(self):
+        """Guardar datos en archivo"""
+        try:
+            with open(self.archivo_datos, 'w', encoding='utf-8') as f:
+                json.dump(self.entradas, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Error al guardar datos: {e}")
+    
+    def exportar_datos(self):
+        """Exportar datos a CSV"""
+        if not self.entradas:
+            messagebox.showwarning("Advertencia", "No hay datos para exportar")
+            return
+        
+        try:
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Exportar entradas
+            csv_entradas = f"boa_entradas_{timestamp}.csv"
+            with open(csv_entradas, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['fecha', 'titulo', 'categoria', 'animo', 'contenido', 'num_obras']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for entrada in self.entradas:
+                    row = {
+                        'fecha': entrada.get('fecha', ''),
+                        'titulo': entrada.get('titulo', ''),
+                        'categoria': entrada.get('categoria', ''),
+                        'animo': entrada.get('animo', ''),
+                        'contenido': entrada.get('contenido', ''),
+                        'num_obras': len(entrada.get('obras', []))
+                    }
+                    writer.writerow(row)
+            
+            # Exportar obras
+            csv_obras = f"boa_obras_{timestamp}.csv"
+            with open(csv_obras, 'w', newline='', encoding='utf-8') as csvfile:
+                fieldnames = ['fecha_entrada', 'titulo_obra', 'tipo', 'archivo', 'fecha_creacion']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                writer.writeheader()
+                for entrada in self.entradas:
+                    if entrada.get('obras'):
+                        for obra in entrada['obras']:
+                            row = {
+                                'fecha_entrada': entrada.get('fecha', ''),
+                                'titulo_obra': obra.get('titulo', ''),
+                                'tipo': obra.get('tipo', ''),
+                                'archivo': obra.get('archivo', ''),
+                                'fecha_creacion': obra.get('fecha_creacion', '')
+                            }
+                            writer.writerow(row)
+            
+            # Backup JSON completo
+            json_backup = f"boa_backup_{timestamp}.json"
+            with open(json_backup, 'w', encoding='utf-8') as jsonfile:
+                json.dump(self.entradas, jsonfile, indent=2, ensure_ascii=False)
+            
+            messagebox.showinfo(
+                "Éxito",
+                f"Datos exportados exitosamente:\n• {csv_entradas}\n• {csv_obras}\n• {json_backup}"
+            )
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al exportar datos: {str(e)}")
+    
+    # Eventos
+    def on_tab_change(self, event):
+        """Evento al cambiar de pestaña"""
+        pestaña_seleccionada = event.widget.tab('current')['text']
+        
+        # Actualizar vista según pestaña
+        if "Dashboard" in pestaña_seleccionada:
+            self.vista_actual = "dashboard"
+            # Actualizar estadísticas del dashboard
+            try:
+                self.actualizar_recientes(self.recientes_frame if hasattr(self, 'recientes_frame') else None)
+            except:
+                pass
+        
+        elif "Galería" in pestaña_seleccionada:
+            self.vista_actual = "galeria"
+            self.actualizar_galeria()
+        
+        elif "Calendario" in pestaña_seleccionada:
+            self.vista_actual = "calendario"
+            self.crear_widget_calendario()
+            self.actualizar_info_dia()
+        
+        elif "Bitácora" in pestaña_seleccionada:
+            self.vista_actual = "bitacora"
+            # Actualizar la fecha en el campo de entrada
+            if hasattr(self, 'fecha_var'):
+                self.fecha_var.set(self.fecha_seleccionada.strftime("%d/%m/%Y"))
+    
+    def ejecutar(self):
+        """Ejecutar la aplicación"""
+        # Configurar evento de cierre
+        self.root.protocol("WM_DELETE_WINDOW", self.al_cerrar)
+        
+        # Mostrar ventana
+        self.root.mainloop()
+    
+    def al_cerrar(self):
+        """Evento al cerrar la aplicación"""
+        # Guardar datos antes de cerrar
+        self.guardar_datos()
+        
+        # Cerrar ventana
+        self.root.destroy()
+
+
+def main():
+    """Función principal"""
+    try:
+        # Crear y ejecutar aplicación
+        app = BOABitacora()
+        app.ejecutar()
+    
+    except Exception as e:
+        print(f"Error al ejecutar B.O.A.2.5.4: {e}")
+        input("Presiona Enter para cerrar...")
+
+
+if __name__ == "__main__":
+    main()
